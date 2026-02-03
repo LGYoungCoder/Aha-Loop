@@ -81,6 +81,27 @@
 
 Aha Loop 设计为与 Claude Code 配合使用。每个阶段都实现为一个 **Skill**，可以直接调用。
 
+### 工作区模式（推荐用于外部项目）
+
+Aha Loop 可以在任何项目上运行，无需将文件复制到 Aha Loop 仓库中。所有 Aha Loop 数据都存储在项目的 `.aha-loop/` 目录中：
+
+```bash
+# 在你的项目中初始化工作区
+/path/to/aha-loop/scripts/aha-loop/orchestrator.sh --init-workspace /path/to/your-project
+
+# 在你的项目上运行 Aha Loop
+/path/to/aha-loop/scripts/aha-loop/orchestrator.sh --workspace /path/to/your-project --build-vision
+
+# 或者设置环境变量
+export AHA_LOOP_WORKSPACE=/path/to/your-project
+/path/to/aha-loop/scripts/aha-loop/orchestrator.sh --build-vision
+```
+
+`--init-workspace` 命令会：
+- 创建 `.aha-loop/` 目录及所有必要的子目录
+- 复制 skills 到 `.claude/skills/`（AI agent 需要）
+- 复制模板、AI 指令和示例文件
+
 ### Windows 设置
 
 如果你在 Windows 上且符号链接没有生效（skills 目录显示为文本文件），运行：
@@ -138,6 +159,33 @@ Remove-Item ".codex\skills" -Force; cmd /c mklink /D ".codex\skills" "..\.agents
 AI 会自主判断每个阶段是否需要执行。所有这些都是自主决策，无需人工干预。
 
 ## 目录结构
+
+### 工作区模式（外部项目）
+
+使用 `--init-workspace` 后，你的项目结构：
+
+```
+your-project/
+├── .claude/
+│   └── skills/                 # AI 技能（从 Aha Loop 复制）
+├── .aha-loop/                  # Aha Loop 工作目录
+│   ├── config.json             # 执行配置
+│   ├── progress.txt            # 进度日志
+│   ├── CLAUDE.md               # AI 指令
+│   ├── prompt.md               # AI 提示
+│   ├── templates/              # 文档模板
+│   ├── project.vision.md       # 项目愿景
+│   ├── project.roadmap.json    # 里程碑和 PRD
+│   ├── research/               # 研究报告
+│   ├── exploration/            # 探索结果
+│   ├── tasks/                  # PRD 文档
+│   ├── knowledge/              # 知识库
+│   ├── logs/                   # AI 思考日志
+│   └── .god/                   # 上帝组委会
+└── src/                        # 你的代码（不受影响）
+```
+
+### 独立模式（Aha Loop 仓库）
 
 **Aha Loop 仓库结构：**
 

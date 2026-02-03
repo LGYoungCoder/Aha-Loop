@@ -18,10 +18,16 @@ set -e
 # Enable globstar for ** pattern
 shopt -s globstar nullglob
 
+# Get script directory for sourcing lib
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-GOD_DIR="$PROJECT_ROOT/.god"
-CONFIG_FILE="$GOD_DIR/config.json"
+
+# Source path resolution library
+source "$SCRIPT_DIR/../aha-loop/lib/paths.sh"
+
+# Initialize paths
+init_paths
+export_paths
+
 POWERS_DIR="$GOD_DIR/powers"
 
 # Source council for logging
@@ -31,13 +37,13 @@ fi
 
 # Load power configuration
 load_power_config() {
-  if [ -f "$CONFIG_FILE" ]; then
-    ALLOW_TERMINATION=$(jq -r '.powers.allowTermination // true' "$CONFIG_FILE")
-    ALLOW_ROLLBACK=$(jq -r '.powers.allowRollback // true' "$CONFIG_FILE")
-    ALLOW_CODE_MOD=$(jq -r '.powers.allowCodeModification // true' "$CONFIG_FILE")
-    ALLOW_SKILL_MOD=$(jq -r '.powers.allowSkillModification // true' "$CONFIG_FILE")
-    ALLOW_PROCESS_KILL=$(jq -r '.powers.allowProcessKill // true' "$CONFIG_FILE")
-    readarray -t REQUIRE_CONSENSUS < <(jq -r '.powers.requireConsensusFor[]' "$CONFIG_FILE" 2>/dev/null)
+  if [ -f "$GOD_DIR/config.json" ]; then
+    ALLOW_TERMINATION=$(jq -r '.powers.allowTermination // true' "$GOD_DIR/config.json")
+    ALLOW_ROLLBACK=$(jq -r '.powers.allowRollback // true' "$GOD_DIR/config.json")
+    ALLOW_CODE_MOD=$(jq -r '.powers.allowCodeModification // true' "$GOD_DIR/config.json")
+    ALLOW_SKILL_MOD=$(jq -r '.powers.allowSkillModification // true' "$GOD_DIR/config.json")
+    ALLOW_PROCESS_KILL=$(jq -r '.powers.allowProcessKill // true' "$GOD_DIR/config.json")
+    readarray -t REQUIRE_CONSENSUS < <(jq -r '.powers.requireConsensusFor[]' "$GOD_DIR/config.json" 2>/dev/null)
   else
     ALLOW_TERMINATION=true
     ALLOW_ROLLBACK=true

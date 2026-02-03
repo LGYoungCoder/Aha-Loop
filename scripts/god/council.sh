@@ -10,18 +10,24 @@
 
 set -e
 
+# Get script directory for sourcing lib
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-GOD_DIR="$PROJECT_ROOT/.god"
+
+# Source path resolution library (only if not already sourced)
+if [[ -z "${AHA_LOOP_HOME:-}" ]]; then
+  source "$SCRIPT_DIR/../aha-loop/lib/paths.sh"
+  init_paths
+  export_paths
+fi
+
 COUNCIL_DIR="$GOD_DIR/council"
-CONFIG_FILE="$GOD_DIR/config.json"
 
 # Load configuration
 load_config() {
-  if [ -f "$CONFIG_FILE" ]; then
-    LOCK_TIMEOUT=$(jq -r '.communication.lockTimeoutSeconds // 60' "$CONFIG_FILE")
-    QUORUM=$(jq -r '.council.quorum // 2' "$CONFIG_FILE")
-    EMERGENCY_QUORUM=$(jq -r '.council.emergencyQuorum // 1' "$CONFIG_FILE")
+  if [ -f "$GOD_DIR/config.json" ]; then
+    LOCK_TIMEOUT=$(jq -r '.communication.lockTimeoutSeconds // 60' "$GOD_DIR/config.json")
+    QUORUM=$(jq -r '.council.quorum // 2' "$GOD_DIR/config.json")
+    EMERGENCY_QUORUM=$(jq -r '.council.emergencyQuorum // 1' "$GOD_DIR/config.json")
   else
     LOCK_TIMEOUT=60
     QUORUM=2

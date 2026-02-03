@@ -7,6 +7,8 @@
 #   ./orchestrator.sh --build-vision      Interactive vision building
 #   ./orchestrator.sh --explore "task"    Start parallel exploration
 #   ./orchestrator.sh --maintenance       Run maintenance tasks
+#   ./orchestrator.sh --workspace /path   Operate on external workspace
+#   ./orchestrator.sh --init-workspace /path  Initialize new workspace
 #
 # Phases:
 #   vision    - Parse project.vision.md and create vision analysis
@@ -17,20 +19,11 @@
 
 set -e
 
-# Configuration
+# Get script directory for sourcing lib
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/config.json"
-LOG_FILE="$PROJECT_ROOT/logs/ai-thoughts.md"
-GOD_DIR="$PROJECT_ROOT/.god"
-DIRECTIVES_FILE="$GOD_DIR/directives.json"
-COUNCIL_SCRIPT="$PROJECT_ROOT/scripts/god/council.sh"
 
-# Project files
-VISION_FILE="$PROJECT_ROOT/project.vision.md"
-VISION_ANALYSIS="$PROJECT_ROOT/project.vision-analysis.md"
-ARCHITECTURE_FILE="$PROJECT_ROOT/project.architecture.md"
-ROADMAP_FILE="$PROJECT_ROOT/project.roadmap.json"
+# Source path resolution library
+source "$SCRIPT_DIR/lib/paths.sh"
 
 # Default settings
 TOOL="claude"
@@ -40,9 +33,8 @@ MAX_ITERATIONS=10
 BUILD_VISION=false
 EXPLORE_TASK=""
 MAINTENANCE=false
-
-# Ensure logs directory exists
-mkdir -p "$(dirname "$LOG_FILE")"
+INIT_WORKSPACE=""
+CLI_WORKSPACE=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -91,6 +83,22 @@ while [[ $# -gt 0 ]]; do
       MAINTENANCE=true
       shift
       ;;
+    --workspace)
+      CLI_WORKSPACE="$2"
+      shift 2
+      ;;
+    --workspace=*)
+      CLI_WORKSPACE="${1#*=}"
+      shift
+      ;;
+    --init-workspace)
+      INIT_WORKSPACE="$2"
+      shift 2
+      ;;
+    --init-workspace=*)
+      INIT_WORKSPACE="${1#*=}"
+      shift
+      ;;
     --help|-h)
       echo "Aha Loop Orchestrator - Autonomous Project Management"
       echo ""
@@ -104,6 +112,8 @@ while [[ $# -gt 0 ]]; do
       echo "  --build-vision       Interactive vision building"
       echo "  --explore TASK       Start parallel exploration for a task"
       echo "  --maintenance        Run maintenance tasks (doc cleanup, skill review)"
+      echo "  --workspace PATH     Operate on external workspace directory"
+      echo "  --init-workspace PATH  Initialize new workspace at PATH"
       echo "  --help               Show this help message"
       echo ""
       echo "Phases:"
@@ -113,11 +123,17 @@ while [[ $# -gt 0 ]]; do
       echo "  execute    Execute PRDs with aha-loop.sh"
       echo "  all        Run all phases in sequence"
       echo ""
+      echo "Workspace Mode:"
+      echo "  Aha Loop can operate on external projects without copying files."
+      echo "  All Aha Loop data is stored in .aha-loop/ within the workspace."
+      echo ""
       echo "Examples:"
       echo "  ./orchestrator.sh                          # Run all phases"
       echo "  ./orchestrator.sh --build-vision           # Interactive vision building"
       echo "  ./orchestrator.sh --explore 'auth system'  # Parallel exploration"
       echo "  ./orchestrator.sh --maintenance            # Run maintenance"
+      echo "  ./orchestrator.sh --init-workspace /path/to/project  # Initialize workspace"
+      echo "  ./orchestrator.sh --workspace /path/to/project       # Use existing workspace"
       exit 0
       ;;
     *)
@@ -125,6 +141,41 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Handle --init-workspace first (before path initialization)
+if [[ -n "$INIT_WORKSPACE" ]]; then
+  # Resolve to absolute path
+  if [[ "$INIT_WORKSPACE" == "." ]]; then
+    INIT_WORKSPACE="$(pwd)"
+  elif [[ "$INIT_WORKSPACE" = /* ]]; then
+    # Already absolute path, keep as is
+    :
+  else
+    # Relative path - convert to absolute
+    INIT_WORKSPACE="$(pwd)/$INIT_WORKSPACE"
+  fi
+
+  # Create directory if it doesn't exist
+  mkdir -p "$INIT_WORKSPACE"
+
+  # Resolve AHA_LOOP_HOME for resource copying
+  AHA_LOOP_HOME=$(resolve_aha_loop_home)
+
+  # Initialize workspace with resource copying
+  init_workspace "$INIT_WORKSPACE" "$AHA_LOOP_HOME"
+  exit 0
+fi
+
+# Initialize paths (handles workspace detection)
+init_paths --workspace "$CLI_WORKSPACE"
+export_paths
+
+# Ensure directories exist
+mkdir -p "$LOGS_DIR"
+mkdir -p "$RESEARCH_DIR"
+mkdir -p "$EXPLORATION_DIR"
+mkdir -p "$ARCHIVE_DIR"
+mkdir -p "$TASKS_DIR"
 
 # Validate tool
 if [[ "$TOOL" != "amp" && "$TOOL" != "claude" ]]; then
@@ -278,7 +329,14 @@ echo "  Autonomous Project Management"
 echo "========================================"
 echo "Tool: $TOOL"
 echo "Phase: $PHASE"
-echo "Project: $PROJECT_ROOT"
+if [[ "$WORKSPACE_MODE" == "true" ]]; then
+  echo "Mode: Workspace"
+  echo "Workspace: $WORKSPACE_ROOT"
+  echo "Aha Loop: $AHA_LOOP_HOME"
+else
+  echo "Mode: Standalone"
+  echo "Project: $WORKSPACE_ROOT"
+fi
 echo "$(get_directives_summary)"
 echo "========================================"
 echo ""
@@ -353,19 +411,22 @@ file_exists_and_recent() {
 run_vision_builder() {
   echo "=== Interactive Vision Builder ==="
   echo ""
-  
+
   log_thought "Vision" "Building" "Starting interactive vision building session."
-  
-  local prompt="Load the vision-builder skill from .claude/skills/vision-builder/SKILL.md. 
+
+  local workspace_ctx=$(generate_workspace_context)
+  local prompt="Load the vision-builder skill from $SKILLS_DIR/vision-builder/SKILL.md.
+
+${workspace_ctx}
 
 Help the user build a complete project vision through guided conversation.
 Use the AskQuestion tool to ask structured questions.
-After gathering all information, generate a complete project.vision.md file.
+After gathering all information, generate a complete project.vision.md file at $VISION_FILE.
 
 Start by introducing yourself and asking about the project type."
-  
+
   run_ai "$prompt"
-  
+
   if [ -f "$VISION_FILE" ]; then
     echo ""
     echo "Vision document created: $VISION_FILE"
@@ -376,24 +437,28 @@ Start by introducing yourself and asking about the project type."
 # Parallel Exploration
 run_parallel_exploration() {
   local task="$1"
-  
+
   echo "=== Parallel Exploration ==="
   echo "Task: $task"
   echo ""
-  
+
   if [ "$PARALLEL_ENABLED" != "true" ]; then
     echo "Parallel exploration is disabled in config."
     exit 1
   fi
-  
+
   log_thought "Exploration" "Starting" "### Parallel Exploration
-  
+
 **Task:** $task
 
 Starting parallel exploration to find the best approach."
-  
-  # Delegate to parallel-explorer.sh
-  "$SCRIPT_DIR/parallel-explorer.sh" explore "$task" --tool "$TOOL"
+
+  # Delegate to parallel-explorer.sh with workspace if set
+  local workspace_arg=""
+  if [[ "$WORKSPACE_MODE" == "true" ]]; then
+    workspace_arg="--workspace $WORKSPACE_ROOT"
+  fi
+  "$SCRIPT_DIR/parallel-explorer.sh" explore "$task" --tool "$TOOL" $workspace_arg
 }
 
 # Maintenance Tasks
@@ -476,11 +541,14 @@ Found vision file, beginning analysis."
   fi
   
   echo "Analyzing project vision..."
-  
-  local prompt="Load the vision skill from .claude/skills/vision/SKILL.md and analyze the project vision in project.vision.md. Save the analysis to project.vision-analysis.md.
 
-Also load the observability skill and log your thoughts to logs/ai-thoughts.md."
-  
+  local workspace_ctx=$(generate_workspace_context)
+  local prompt="Load the vision skill from $SKILLS_DIR/vision/SKILL.md and analyze the project vision in $VISION_FILE. Save the analysis to $VISION_ANALYSIS.
+
+${workspace_ctx}
+
+Also load the observability skill and log your thoughts to $LOG_FILE."
+
   run_ai "$prompt"
   
   if [ -f "$VISION_ANALYSIS" ]; then
@@ -516,14 +584,17 @@ Beginning technology research and architecture design."
   fi
   
   echo "Designing system architecture..."
-  
-  local prompt="Load the architect skill from .claude/skills/architect/SKILL.md. Read project.vision-analysis.md and design the system architecture. 
+
+  local workspace_ctx=$(generate_workspace_context)
+  local prompt="Load the architect skill from $SKILLS_DIR/architect/SKILL.md. Read $VISION_ANALYSIS and design the system architecture.
+
+${workspace_ctx}
 
 IMPORTANT: Research and select the LATEST STABLE VERSIONS of all technologies.
 Check crates.io, npm, or relevant package registries for current versions.
 
-Save to project.architecture.md and log your decision process to logs/ai-thoughts.md."
-  
+Save to $ARCHITECTURE_FILE and log your decision process to $LOG_FILE."
+
   run_ai "$prompt"
   
   if [ -f "$ARCHITECTURE_FILE" ]; then
@@ -561,9 +632,12 @@ Creating project milestones and PRD queue."
   else
     echo "Creating project roadmap..."
   fi
-  
-  local prompt="Load the roadmap skill from .claude/skills/roadmap/SKILL.md. Read project.vision-analysis.md and project.architecture.md. Create or update project.roadmap.json with milestones and PRDs. Generate PRD stub files in tasks/ directory."
-  
+
+  local workspace_ctx=$(generate_workspace_context)
+  local prompt="Load the roadmap skill from $SKILLS_DIR/roadmap/SKILL.md. Read $VISION_ANALYSIS and $ARCHITECTURE_FILE. Create or update $ROADMAP_FILE with milestones and PRDs. Generate PRD stub files in $TASKS_DIR directory.
+
+${workspace_ctx}"
+
   run_ai "$prompt"
   
   if [ -f "$ROADMAP_FILE" ]; then
@@ -641,27 +715,39 @@ Beginning work on PRD: $current_prd"
     
     # Get PRD file path
     local prd_file=$(jq -r --arg id "$current_prd" '
-      .milestones[].prds[] | 
-      select(.id == $id) | 
+      .milestones[].prds[] |
+      select(.id == $id) |
       .prdFile
     ' "$ROADMAP_FILE")
-    
-    if [ -z "$prd_file" ] || [ ! -f "$PROJECT_ROOT/$prd_file" ]; then
+
+    # Resolve prd_file path relative to workspace
+    local full_prd_file
+    if [[ "$WORKSPACE_MODE" == "true" ]]; then
+      full_prd_file="$AHA_LOOP_DIR/$prd_file"
+    else
+      full_prd_file="$WORKSPACE_ROOT/$prd_file"
+    fi
+
+    if [ -z "$prd_file" ] || [ ! -f "$full_prd_file" ]; then
       echo "Error: PRD file not found: $prd_file"
       echo "Generating PRD content..."
-      
-      local directives_ctx=$(build_directives_context "$current_prd")
-      local prompt="Load the prd skill. Read the roadmap entry for $current_prd in project.roadmap.json and generate the full PRD content. Save to $prd_file.
 
+      local directives_ctx=$(build_directives_context "$current_prd")
+      local workspace_ctx=$(generate_workspace_context)
+      local prompt="Load the prd skill from $SKILLS_DIR/prd/SKILL.md. Read the roadmap entry for $current_prd in $ROADMAP_FILE and generate the full PRD content. Save to $full_prd_file.
+
+${workspace_ctx}
 ${directives_ctx}"
       run_ai "$prompt"
     fi
-    
+
     # Convert PRD to prd.json if needed
     echo "Converting PRD to executable format..."
     local directives_ctx=$(build_directives_context "$current_prd")
-    local prompt="Load the prd-converter skill. Convert $prd_file to scripts/aha-loop/prd.json format.
+    local workspace_ctx=$(generate_workspace_context)
+    local prompt="Load the prd-converter skill from $SKILLS_DIR/prd-converter/SKILL.md. Convert $full_prd_file to $PRD_FILE format.
 
+${workspace_ctx}
 ${directives_ctx}"
     run_ai "$prompt"
     
@@ -673,7 +759,11 @@ ${directives_ctx}"
     
     # Execute the PRD with aha-loop.sh
     echo "Running Aha Loop for $current_prd..."
-    "$SCRIPT_DIR/aha-loop.sh" --tool "$TOOL" --max-iterations "$MAX_ITERATIONS"
+    local workspace_arg=""
+    if [[ "$WORKSPACE_MODE" == "true" ]]; then
+      workspace_arg="--workspace $WORKSPACE_ROOT"
+    fi
+    "$SCRIPT_DIR/aha-loop.sh" --tool "$TOOL" --max-iterations "$MAX_ITERATIONS" $workspace_arg
     local aha_loop_exit=$?
     
     if [ $aha_loop_exit -eq 0 ]; then
@@ -698,9 +788,8 @@ ${directives_ctx}"
 PRD $current_prd completed successfully."
 
       # Merge completed PRD branch back to main
-      local prd_json_file="$SCRIPT_DIR/prd.json"
-      if [ -f "$prd_json_file" ]; then
-        local prd_branch=$(jq -r '.branchName // empty' "$prd_json_file")
+      if [ -f "$PRD_FILE" ]; then
+        local prd_branch=$(jq -r '.branchName // empty' "$PRD_FILE")
         if [ -n "$prd_branch" ]; then
           local current_branch=$(git branch --show-current)
           if [ "$current_branch" = "$prd_branch" ]; then
@@ -753,7 +842,10 @@ Milestone $milestone_id has been completed."
         
         # Trigger roadmap review after milestone completion
         echo "Reviewing roadmap after milestone completion..."
-        local prompt="Load the roadmap skill. Review project.roadmap.json after completing milestone $milestone_id. Update if new PRDs are needed based on learnings."
+        local workspace_ctx=$(generate_workspace_context)
+        local prompt="Load the roadmap skill from $SKILLS_DIR/roadmap/SKILL.md. Review $ROADMAP_FILE after completing milestone $milestone_id. Update if new PRDs are needed based on learnings.
+
+${workspace_ctx}"
         run_ai "$prompt"
         
         # Run doc maintenance after milestone
@@ -765,10 +857,10 @@ Milestone $milestone_id has been completed."
       
       prds_executed=$((prds_executed + 1))
     else
-      echo "PRD $current_prd did not complete. Check progress.txt for details."
+      echo "PRD $current_prd did not complete. Check $PROGRESS_FILE for details."
       log_thought "$current_prd" "Failed" "### PRD Execution Failed
 
-PRD $current_prd did not complete successfully. Check progress.txt for details."
+PRD $current_prd did not complete successfully. Check $PROGRESS_FILE for details."
       break
     fi
     

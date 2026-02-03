@@ -11,10 +11,22 @@
 
 set -e
 
+# Get script directory for sourcing lib
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/config.json"
-REPORT_FILE="$PROJECT_ROOT/docs-review-report.md"
+
+# Source path resolution library
+source "$SCRIPT_DIR/lib/paths.sh"
+
+# Initialize paths
+init_paths
+export_paths
+
+# Report file location depends on workspace mode
+if [[ "$WORKSPACE_MODE" == "true" ]]; then
+  REPORT_FILE="$AHA_LOOP_DIR/docs-review-report.md"
+else
+  REPORT_FILE="$WORKSPACE_ROOT/docs-review-report.md"
+fi
 
 # Default settings
 MAX_STALE_DAYS=30
@@ -48,10 +60,12 @@ usage() {
 
 # Find all documentation files
 find_docs() {
-  find "$PROJECT_ROOT" -name "*.md" \
+  find "$WORKSPACE_ROOT" -name "*.md" \
     -not -path "*/.git/*" \
     -not -path "*/.vendor/*" \
     -not -path "*/.worktrees/*" \
+    -not -path "*/.aha-loop/.worktrees/*" \
+    -not -path "*/.aha-loop/.vendor/*" \
     -not -path "*/node_modules/*" \
     -not -path "*/target/*" \
     2>/dev/null | sort
@@ -77,12 +91,12 @@ file_age_days() {
 check_file_reference() {
   local ref="$1"
   local doc_dir="$2"
-  
+
   # Handle relative and absolute paths
   if [[ "$ref" == /* ]]; then
-    [ -e "$PROJECT_ROOT$ref" ]
+    [ -e "$WORKSPACE_ROOT$ref" ]
   else
-    [ -e "$doc_dir/$ref" ] || [ -e "$PROJECT_ROOT/$ref" ]
+    [ -e "$doc_dir/$ref" ] || [ -e "$WORKSPACE_ROOT/$ref" ]
   fi
 }
 
@@ -127,7 +141,7 @@ generate_report() {
   
   while IFS= read -r file; do
     total_files=$((total_files + 1))
-    local rel_path="${file#$PROJECT_ROOT/}"
+    local rel_path="${file#$WORKSPACE_ROOT/}"
     local doc_dir=$(dirname "$file")
     local file_issues=""
     
@@ -236,19 +250,19 @@ apply_fixes() {
   local fixes_applied=0
   
   while IFS= read -r file; do
-    local rel_path="${file#$PROJECT_ROOT/}"
+    local rel_path="${file#$WORKSPACE_ROOT/}"
     local doc_dir=$(dirname "$file")
     local fixed=false
-    
+
     # Check for fixable issues
     while IFS= read -r ref; do
       if [ -n "$ref" ]; then
         if ! check_file_reference "$ref" "$doc_dir"; then
           # Try to find the file elsewhere
-          local found=$(find "$PROJECT_ROOT" -name "$(basename "$ref")" -not -path "*/.git/*" 2>/dev/null | head -1)
-          
+          local found=$(find "$WORKSPACE_ROOT" -name "$(basename "$ref")" -not -path "*/.git/*" 2>/dev/null | head -1)
+
           if [ -n "$found" ]; then
-            local new_ref="${found#$PROJECT_ROOT/}"
+            local new_ref="${found#$WORKSPACE_ROOT/}"
             echo "  $rel_path: Updating reference $ref -> $new_ref"
             sed -i "s|$ref|$new_ref|g" "$file"
             fixed=true
@@ -271,7 +285,7 @@ interactive_mode() {
   echo ""
   
   while IFS= read -r file; do
-    local rel_path="${file#$PROJECT_ROOT/}"
+    local rel_path="${file#$WORKSPACE_ROOT/}"
     local age=$(file_age_days "$file")
     local has_issues=false
     
@@ -348,8 +362,8 @@ check_links_only() {
   local broken=0
   
   while IFS= read -r file; do
-    local rel_path="${file#$PROJECT_ROOT/}"
-    
+    local rel_path="${file#$WORKSPACE_ROOT/}"
+
     while IFS= read -r url; do
       if [ -n "$url" ]; then
         if [[ "$url" != *"localhost"* ]] && [[ "$url" != *"example.com"* ]]; then
@@ -381,9 +395,9 @@ check_refs_only() {
   local missing=0
   
   while IFS= read -r file; do
-    local rel_path="${file#$PROJECT_ROOT/}"
+    local rel_path="${file#$WORKSPACE_ROOT/}"
     local doc_dir=$(dirname "$file")
-    
+
     while IFS= read -r ref; do
       if [ -n "$ref" ]; then
         total=$((total + 1))

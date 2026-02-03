@@ -18,15 +18,19 @@ set -e
 # Enable globstar for ** pattern
 shopt -s globstar nullglob
 
+# Get script directory for sourcing lib
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-GOD_DIR="$PROJECT_ROOT/.god"
-CONFIG_FILE="$GOD_DIR/config.json"
-OBS_DIR="$GOD_DIR/observation"
+
+# Source path resolution library
+source "$SCRIPT_DIR/../aha-loop/lib/paths.sh"
+
+# Initialize paths
+init_paths
+export_paths
 
 # Load configuration
-readarray -t WATCH_PATHS < <(jq -r '.observation.watchPaths[]' "$CONFIG_FILE" 2>/dev/null)
-readarray -t ALERT_PATTERNS < <(jq -r '.observation.alertPatterns[]' "$CONFIG_FILE" 2>/dev/null)
+readarray -t WATCH_PATHS < <(jq -r '.observation.watchPaths[]' "$GOD_DIR/config.json" 2>/dev/null)
+readarray -t ALERT_PATTERNS < <(jq -r '.observation.alertPatterns[]' "$GOD_DIR/config.json" 2>/dev/null)
 [ ${#ALERT_PATTERNS[@]} -eq 0 ] && ALERT_PATTERNS=("error" "failed")
 
 #######################################
@@ -51,13 +55,13 @@ collect_execution_state() {
   fi
   
   # Try to read current PRD
-  if [ -f "$PROJECT_ROOT/project.roadmap.json" ]; then
-    current_prd=$(jq -r '.prds[] | select(.status == "in_progress") | .id' "$PROJECT_ROOT/project.roadmap.json" 2>/dev/null | head -1)
+  if [ -f "$ROADMAP_FILE" ]; then
+    current_prd=$(jq -r '.prds[] | select(.status == "in_progress") | .id' "$ROADMAP_FILE" 2>/dev/null | head -1)
   fi
-  
+
   # Try to read current story from any prd.json
-  if [ -n "$current_prd" ] && [ -f "$PROJECT_ROOT/docs/prd/$current_prd/prd.json" ]; then
-    current_story=$(jq -r '.stories[] | select(.status == "in_progress") | .id' "$PROJECT_ROOT/docs/prd/$current_prd/prd.json" 2>/dev/null | head -1)
+  if [ -n "$current_prd" ] && [ -f "$TASKS_DIR/$current_prd/prd.json" ]; then
+    current_story=$(jq -r '.stories[] | select(.status == "in_progress") | .id' "$TASKS_DIR/$current_prd/prd.json" 2>/dev/null | head -1)
   fi
   
   jq -n \
@@ -81,14 +85,14 @@ collect_health_metrics() {
   local type_errors=""
   
   # Check for test results
-  if [ -f "$PROJECT_ROOT/test-results.json" ]; then
-    tests_passing=$(jq '.success // null' "$PROJECT_ROOT/test-results.json")
+  if [ -f "$WORKSPACE_ROOT/test-results.json" ]; then
+    tests_passing=$(jq '.success // null' "$WORKSPACE_ROOT/test-results.json")
   fi
-  
+
   # Count lint errors in logs
-  if [ -f "$PROJECT_ROOT/logs/ai-thoughts.md" ]; then
+  if [ -f "$LOG_FILE" ]; then
     local le_val
-    le_val=$(grep -c "lint error\|linter error" "$PROJECT_ROOT/logs/ai-thoughts.md" 2>/dev/null) || le_val="0"
+    le_val=$(grep -c "lint error\|linter error" "$LOG_FILE" 2>/dev/null) || le_val="0"
     lint_errors="$le_val"
   fi
   
@@ -113,15 +117,15 @@ collect_progress_metrics() {
   local completed_stories=0
   
   # Read from roadmap
-  if [ -f "$PROJECT_ROOT/project.roadmap.json" ]; then
-    local cp_val=$(jq '[.prds[]? | select(.status == "completed")] | length' "$PROJECT_ROOT/project.roadmap.json" 2>/dev/null)
-    local cm_val=$(jq '[.milestones[]? | select(.status == "completed")] | length' "$PROJECT_ROOT/project.roadmap.json" 2>/dev/null)
+  if [ -f "$ROADMAP_FILE" ]; then
+    local cp_val=$(jq '[.prds[]? | select(.status == "completed")] | length' "$ROADMAP_FILE" 2>/dev/null)
+    local cm_val=$(jq '[.milestones[]? | select(.status == "completed")] | length' "$ROADMAP_FILE" 2>/dev/null)
     [ -n "$cp_val" ] && [ "$cp_val" != "null" ] && completed_prds="$cp_val"
     [ -n "$cm_val" ] && [ "$cm_val" != "null" ] && completed_milestones="$cm_val"
   fi
-  
+
   # Read from PRD files
-  for prd_file in "$PROJECT_ROOT"/docs/prd/*/prd.json; do
+  for prd_file in "$TASKS_DIR"/*/prd.json; do
     if [ -f "$prd_file" ]; then
       local ts_val=$(jq '.stories | length' "$prd_file" 2>/dev/null)
       local cs_val=$(jq '[.stories[]? | select(.status == "completed")] | length' "$prd_file" 2>/dev/null)
@@ -156,19 +160,19 @@ collect_resource_usage() {
   local log_size=""
   
   # Count worktrees
-  if [ -d "$PROJECT_ROOT/.worktrees" ]; then
-    local wt_count=$(ls -1 "$PROJECT_ROOT/.worktrees" 2>/dev/null | wc -l | tr -d ' ')
+  if [ -d "$WORKTREES_DIR" ]; then
+    local wt_count=$(ls -1 "$WORKTREES_DIR" 2>/dev/null | wc -l | tr -d ' ')
     [ -n "$wt_count" ] && active_worktrees="$wt_count"
   fi
-  
+
   # Get vendor size
-  if [ -d "$PROJECT_ROOT/.vendor" ]; then
-    vendor_size=$(du -sh "$PROJECT_ROOT/.vendor" 2>/dev/null | cut -f1)
+  if [ -d "$VENDOR_DIR" ]; then
+    vendor_size=$(du -sh "$VENDOR_DIR" 2>/dev/null | cut -f1)
   fi
-  
+
   # Get log size
-  if [ -d "$PROJECT_ROOT/logs" ]; then
-    log_size=$(du -sh "$PROJECT_ROOT/logs" 2>/dev/null | cut -f1)
+  if [ -d "$LOGS_DIR" ]; then
+    log_size=$(du -sh "$LOGS_DIR" 2>/dev/null | cut -f1)
   fi
   
   # Ensure active_worktrees is numeric
@@ -232,9 +236,9 @@ check_anomalies() {
   echo "Checking for anomalies..."
   
   # Check for error patterns in logs
-  if [ -f "$PROJECT_ROOT/logs/ai-thoughts.md" ]; then
+  if [ -f "$LOG_FILE" ]; then
     for pattern in "${ALERT_PATTERNS[@]}"; do
-      local count=$(grep -ci "$pattern" "$PROJECT_ROOT/logs/ai-thoughts.md" 2>/dev/null || echo "0")
+      local count=$(grep -ci "$pattern" "$LOG_FILE" 2>/dev/null || echo "0")
       if [ "$count" -gt 5 ]; then
         anomalies+=("$(jq -n \
           --arg type "log_pattern" \
@@ -264,8 +268,8 @@ check_anomalies() {
   fi
   
   # Check for large log files
-  if [ -d "$PROJECT_ROOT/logs" ]; then
-    for log_file in "$PROJECT_ROOT/logs"/*.md; do
+  if [ -d "$LOGS_DIR" ]; then
+    for log_file in "$LOGS_DIR"/*.md; do
       if [ -f "$log_file" ]; then
         local size=$(stat -f%z "$log_file" 2>/dev/null || stat -c%s "$log_file" 2>/dev/null || echo "0")
         if [ "$size" -gt 10485760 ]; then  # 10MB
@@ -281,8 +285,8 @@ check_anomalies() {
   fi
   
   # Check for failed tests
-  if [ -f "$PROJECT_ROOT/test-results.json" ]; then
-    local failed=$(jq '.failed // 0' "$PROJECT_ROOT/test-results.json" 2>/dev/null || echo "0")
+  if [ -f "$WORKSPACE_ROOT/test-results.json" ]; then
+    local failed=$(jq '.failed // 0' "$WORKSPACE_ROOT/test-results.json" 2>/dev/null || echo "0")
     if [ "$failed" -gt 0 ]; then
       anomalies+=("$(jq -n \
         --arg type "test_failure" \
@@ -294,8 +298,8 @@ check_anomalies() {
   fi
   
   # Check for too many worktrees
-  if [ -d "$PROJECT_ROOT/.worktrees" ]; then
-    local wt_count=$(ls -1 "$PROJECT_ROOT/.worktrees" 2>/dev/null | wc -l | tr -d ' ')
+  if [ -d "$WORKTREES_DIR" ]; then
+    local wt_count=$(ls -1 "$WORKTREES_DIR" 2>/dev/null | wc -l | tr -d ' ')
     if [ "$wt_count" -gt 10 ]; then
       anomalies+=("$(jq -n \
         --arg type "resource_usage" \

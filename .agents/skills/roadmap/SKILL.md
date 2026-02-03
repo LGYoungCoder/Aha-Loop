@@ -7,6 +7,16 @@ description: "Creates and manages project roadmaps with milestones and PRD queue
 
 Plan project execution by creating milestones and organizing PRDs into an executable queue.
 
+## Workspace Mode Note
+
+When running in workspace mode, all paths are relative to `.aha-loop/` directory:
+- Vision analysis: `.aha-loop/project.vision-analysis.md`
+- Architecture: `.aha-loop/project.architecture.md`
+- Roadmap: `.aha-loop/project.roadmap.json`
+- PRD files: `.aha-loop/tasks/`
+
+The orchestrator will provide the actual paths in the prompt context.
+
 ---
 
 ## The Job

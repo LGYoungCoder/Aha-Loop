@@ -7,6 +7,11 @@ description: "Generates Product Requirements Documents (PRD) for new features. U
 
 Create detailed Product Requirements Documents that are clear, actionable, and suitable for implementation.
 
+## Workspace Mode Note
+
+When running in workspace mode, save PRDs to `.aha-loop/tasks/` instead of `tasks/`.
+The orchestrator will provide the actual paths in the prompt context.
+
 ---
 
 ## The Job

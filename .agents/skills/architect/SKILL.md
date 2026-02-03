@@ -7,6 +7,14 @@ description: "Designs system architecture and selects technology stack based on 
 
 Research, evaluate, and decide on technology stack and system architecture based on project requirements.
 
+## Workspace Mode Note
+
+When running in workspace mode, all paths are relative to `.aha-loop/` directory:
+- Vision analysis: `.aha-loop/project.vision-analysis.md`
+- Architecture output: `.aha-loop/project.architecture.md`
+
+The orchestrator will provide the actual paths in the prompt context.
+
 ---
 
 ## The Job

@@ -1,13 +1,20 @@
 #!/bin/bash
 # Aha Loop Executor - Autonomous AI agent loop with Research, Exploration & Plan Review
-# Usage: ./aha-loop.sh [--tool amp|claude] [--phase research|explore|plan-review|implement|all] [--max-iterations N] [max_iterations]
+# Usage: ./aha-loop.sh [--tool amp|claude] [--phase research|explore|plan-review|implement|all] [--max-iterations N] [--workspace PATH]
 
 set -e
+
+# Get script directory for sourcing lib
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source path resolution library
+source "$SCRIPT_DIR/lib/paths.sh"
 
 # Parse arguments
 TOOL="amp"
 PHASE="all"
 MAX_ITERATIONS=10
+CLI_WORKSPACE=""
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -35,6 +42,14 @@ while [[ $# -gt 0 ]]; do
       MAX_ITERATIONS="${1#*=}"
       shift
       ;;
+    --workspace)
+      CLI_WORKSPACE="$2"
+      shift 2
+      ;;
+    --workspace=*)
+      CLI_WORKSPACE="${1#*=}"
+      shift
+      ;;
     *)
       if [[ "$1" =~ ^[0-9]+$ ]]; then
         MAX_ITERATIONS="$1"
@@ -55,18 +70,15 @@ if [[ "$PHASE" != "all" && "$PHASE" != "research" && "$PHASE" != "explore" && "$
   exit 1
 fi
 
-# Paths
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-PRD_FILE="$SCRIPT_DIR/prd.json"
-PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
-CONFIG_FILE="$SCRIPT_DIR/config.json"
-ARCHIVE_DIR="$SCRIPT_DIR/archive"
-LAST_BRANCH_FILE="$SCRIPT_DIR/.last-branch"
-RESEARCH_DIR="$SCRIPT_DIR/research"
-EXPLORATION_DIR="$SCRIPT_DIR/exploration"
-GOD_DIR="$PROJECT_ROOT/.god"
-DIRECTIVES_FILE="$GOD_DIR/directives.json"
+# Initialize paths (handles workspace detection)
+init_paths --workspace "$CLI_WORKSPACE"
+export_paths
+
+# Ensure directories exist
+mkdir -p "$RESEARCH_DIR"
+mkdir -p "$ARCHIVE_DIR"
+mkdir -p "$EXPLORATION_DIR"
+mkdir -p "$LOGS_DIR"
 
 # Load config
 RESEARCH_ENABLED=true
@@ -90,33 +102,28 @@ if [ "$MAX_ITERATIONS" -eq 10 ] && [ "$CONFIG_MAX_ITERATIONS" != "10" ]; then
   MAX_ITERATIONS="$CONFIG_MAX_ITERATIONS"
 fi
 
-# Ensure directories exist
-mkdir -p "$RESEARCH_DIR"
-mkdir -p "$ARCHIVE_DIR"
-mkdir -p "$EXPLORATION_DIR"
-
 # Archive previous run if branch changed
 if [ -f "$PRD_FILE" ] && [ -f "$LAST_BRANCH_FILE" ]; then
   CURRENT_BRANCH=$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || echo "")
   LAST_BRANCH=$(cat "$LAST_BRANCH_FILE" 2>/dev/null || echo "")
-  
+
   if [ -n "$CURRENT_BRANCH" ] && [ -n "$LAST_BRANCH" ] && [ "$CURRENT_BRANCH" != "$LAST_BRANCH" ]; then
     DATE=$(date +%Y-%m-%d)
     FOLDER_NAME=$(echo "$LAST_BRANCH" | sed 's|^aha-loop/||')
     ARCHIVE_FOLDER="$ARCHIVE_DIR/$DATE-$FOLDER_NAME"
-    
+
     echo "Archiving previous run: $LAST_BRANCH"
     mkdir -p "$ARCHIVE_FOLDER"
     [ -f "$PRD_FILE" ] && cp "$PRD_FILE" "$ARCHIVE_FOLDER/"
     [ -f "$PROGRESS_FILE" ] && cp "$PROGRESS_FILE" "$ARCHIVE_FOLDER/"
     [ -d "$RESEARCH_DIR" ] && cp -r "$RESEARCH_DIR" "$ARCHIVE_FOLDER/" 2>/dev/null || true
     echo "  Archived to: $ARCHIVE_FOLDER"
-    
+
     # Reset progress file
     echo "# Aha Loop Progress Log" > "$PROGRESS_FILE"
     echo "Started: $(date)" >> "$PROGRESS_FILE"
     echo "---" >> "$PROGRESS_FILE"
-    
+
     # Clear research reports
     rm -f "$RESEARCH_DIR"/*.md 2>/dev/null || true
   fi
@@ -205,29 +212,32 @@ run_exploration() {
   local story_id="$1"
   local topic="$2"
   local approaches="$3"
-  
+
   echo "Starting parallel exploration for: $topic"
-  
+
   local explore_args="explore \"$topic\""
   if [ -n "$approaches" ]; then
     explore_args="$explore_args --approaches \"$approaches\""
   fi
   explore_args="$explore_args --tool $TOOL"
-  
+  if [[ "$WORKSPACE_MODE" == "true" ]]; then
+    explore_args="$explore_args --workspace $WORKSPACE_ROOT"
+  fi
+
   # Run parallel explorer
   eval "$SCRIPT_DIR/parallel-explorer.sh $explore_args"
-  local task_id=$(ls -t "$PROJECT_ROOT/.worktrees/" 2>/dev/null | grep "^explore-" | head -1)
-  
+  local task_id=$(ls -t "$WORKTREES_DIR/" 2>/dev/null | grep "^explore-" | head -1)
+
   if [ -n "$task_id" ]; then
     echo "Exploration started: $task_id"
     echo "Waiting for explorations to complete..."
-    
+
     # Wait for all explorations to complete (check every 30 seconds)
     local max_wait=3600  # 1 hour max
     local waited=0
     while [ $waited -lt $max_wait ]; do
       local all_done=true
-      for status_file in "$PROJECT_ROOT/.worktrees/$task_id"/*/exploration.status; do
+      for status_file in "$WORKTREES_DIR/$task_id"/*/exploration.status; do
         if [ -f "$status_file" ]; then
           local status=$(cat "$status_file")
           if [ "$status" = "running" ]; then
@@ -236,27 +246,31 @@ run_exploration() {
           fi
         fi
       done
-      
+
       if [ "$all_done" = true ]; then
         break
       fi
-      
+
       echo "  Still exploring... (${waited}s elapsed)"
       sleep 30
       waited=$((waited + 30))
     done
-    
+
     # Evaluate results
     echo "Evaluating exploration results..."
-    "$SCRIPT_DIR/parallel-explorer.sh" evaluate "$task_id"
-    
+    local eval_args="evaluate $task_id"
+    if [[ "$WORKSPACE_MODE" == "true" ]]; then
+      eval_args="$eval_args --workspace $WORKSPACE_ROOT"
+    fi
+    "$SCRIPT_DIR/parallel-explorer.sh" $eval_args
+
     # Save exploration result
     local result_file="$EXPLORATION_DIR/${story_id}-${topic//[^a-zA-Z0-9]/-}.md"
-    if [ -f "$PROJECT_ROOT/.worktrees/$task_id/evaluation/FINAL_RECOMMENDATION.md" ]; then
-      cp "$PROJECT_ROOT/.worktrees/$task_id/evaluation/FINAL_RECOMMENDATION.md" "$result_file"
+    if [ -f "$WORKTREES_DIR/$task_id/evaluation/FINAL_RECOMMENDATION.md" ]; then
+      cp "$WORKTREES_DIR/$task_id/evaluation/FINAL_RECOMMENDATION.md" "$result_file"
       echo "Exploration result saved: $result_file"
     fi
-    
+
     return 0
   else
     echo "Warning: Exploration did not start properly"
@@ -372,6 +386,12 @@ echo "========================================"
 echo "Tool: $TOOL"
 echo "Phase: $PHASE"
 echo "Max Iterations: $MAX_ITERATIONS"
+if [[ "$WORKSPACE_MODE" == "true" ]]; then
+  echo "Mode: Workspace"
+  echo "Workspace: $WORKSPACE_ROOT"
+else
+  echo "Mode: Standalone"
+fi
 echo "Research Enabled: $RESEARCH_ENABLED"
 echo "Exploration Enabled: $EXPLORATION_ENABLED"
 echo "Plan Review Enabled: $PLAN_REVIEW_ENABLED"

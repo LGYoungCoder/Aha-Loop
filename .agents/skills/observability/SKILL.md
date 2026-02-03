@@ -7,6 +7,11 @@ description: "Logs AI thoughts and decisions for human observability. Applies co
 
 Maintain transparent, human-readable logs of AI decision-making process.
 
+## Workspace Mode Note
+
+When running in workspace mode, log to `.aha-loop/logs/ai-thoughts.md` instead of `logs/ai-thoughts.md`.
+The orchestrator will provide the actual paths in the prompt context.
+
 ---
 
 ## The Job

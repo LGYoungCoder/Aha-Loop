@@ -81,6 +81,27 @@ User: "I want to build an AI gateway..."
 
 Aha Loop is designed to work with Claude Code. Each phase is implemented as a **Skill** that you can invoke directly.
 
+### Workspace Mode (Recommended for External Projects)
+
+Aha Loop can operate on any project without copying files into the Aha Loop repository. All Aha Loop data is stored in `.aha-loop/` within your project:
+
+```bash
+# Initialize workspace in your project
+/path/to/aha-loop/scripts/aha-loop/orchestrator.sh --init-workspace /path/to/your-project
+
+# Run Aha Loop on your project
+/path/to/aha-loop/scripts/aha-loop/orchestrator.sh --workspace /path/to/your-project --build-vision
+
+# Or set environment variable
+export AHA_LOOP_WORKSPACE=/path/to/your-project
+/path/to/aha-loop/scripts/aha-loop/orchestrator.sh --build-vision
+```
+
+The `--init-workspace` command will:
+- Create `.aha-loop/` directory with all necessary subdirectories
+- Copy skills to `.claude/skills/` (required for AI agents)
+- Copy templates, AI instructions, and example files
+
 ### Windows Setup
 
 If you're on Windows and symlinks aren't working (skills directory shows as text file), run:
@@ -138,6 +159,33 @@ The system will automatically execute a **five-phase workflow** for each Story:
 AI decides when each phase is needed. All of these are autonomous decisions. No manual intervention required.
 
 ## Directory Structure
+
+### Workspace Mode (External Projects)
+
+When using `--init-workspace`, your project will have:
+
+```
+your-project/
+├── .claude/
+│   └── skills/                 # AI skills (copied from Aha Loop)
+├── .aha-loop/                  # Aha Loop working directory
+│   ├── config.json             # Execution config
+│   ├── progress.txt            # Progress log
+│   ├── CLAUDE.md               # AI instructions
+│   ├── prompt.md               # AI prompt
+│   ├── templates/              # Document templates
+│   ├── project.vision.md       # Project vision
+│   ├── project.roadmap.json    # Milestones and PRDs
+│   ├── research/               # Research reports
+│   ├── exploration/            # Exploration results
+│   ├── tasks/                  # PRD documents
+│   ├── knowledge/              # Knowledge base
+│   ├── logs/                   # AI thought logs
+│   └── .god/                   # God Committee
+└── src/                        # Your code (untouched)
+```
+
+### Standalone Mode (Aha Loop Repository)
 
 **Aha Loop Repository:**
 

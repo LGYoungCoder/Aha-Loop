@@ -7,6 +7,14 @@ description: "Parses and analyzes project vision to extract structured requireme
 
 Parse the project vision document and extract structured requirements for architecture and planning.
 
+## Workspace Mode Note
+
+When running in workspace mode, all paths are relative to `.aha-loop/` directory:
+- Vision file: `.aha-loop/project.vision.md`
+- Analysis output: `.aha-loop/project.vision-analysis.md`
+
+The orchestrator will provide the actual paths in the prompt context.
+
 ---
 
 ## The Job

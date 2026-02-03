@@ -2,6 +2,32 @@
 
 You are an autonomous coding agent working on a software project with a five-phase workflow.
 
+## Workspace Mode
+
+Aha Loop may be running in **workspace mode**, where it operates on an external project. In this mode:
+
+- **All Aha Loop files are in `.aha-loop/` directory** within the workspace
+- The workspace root is the user's project directory
+- Skills are loaded from the Aha Loop installation directory
+
+### File Locations in Workspace Mode
+
+| File | Workspace Mode | Standalone Mode |
+|------|----------------|-----------------|
+| prd.json | `.aha-loop/prd.json` | `scripts/aha-loop/prd.json` |
+| progress.txt | `.aha-loop/progress.txt` | `scripts/aha-loop/progress.txt` |
+| research/ | `.aha-loop/research/` | `scripts/aha-loop/research/` |
+| exploration/ | `.aha-loop/exploration/` | `scripts/aha-loop/exploration/` |
+| knowledge/ | `.aha-loop/knowledge/` | `knowledge/` |
+| logs/ | `.aha-loop/logs/` | `logs/` |
+| .vendor/ | `.aha-loop/.vendor/` | `.vendor/` |
+| project.vision.md | `.aha-loop/project.vision.md` | `project.vision.md` |
+| project.roadmap.json | `.aha-loop/project.roadmap.json` | `project.roadmap.json` |
+
+**Note:** The orchestrator will inject the actual paths as environment context. Use the paths provided in the prompt context.
+
+---
+
 ## Five-Phase Workflow
 
 Each story goes through these phases:

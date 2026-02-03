@@ -12,9 +12,17 @@
 
 set -e
 
+# Get script directory for sourcing lib
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-SKILLS_DIR="$PROJECT_ROOT/.claude/skills"
+
+# Source path resolution library
+source "$SCRIPT_DIR/lib/paths.sh"
+
+# Initialize paths (skills are always in AHA_LOOP_HOME)
+init_paths
+export_paths
+
+# Skills directory is always in AHA_LOOP_HOME
 REGISTRY_FILE="$SKILLS_DIR/.registry.json"
 
 # Initialize registry if not exists

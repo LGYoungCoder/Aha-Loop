@@ -15,19 +15,24 @@
 
 set -e
 
+# Get script directory for sourcing lib
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-GOD_DIR="$PROJECT_ROOT/.god"
-CONFIG_FILE="$GOD_DIR/config.json"
+
+# Source path resolution library
+source "$SCRIPT_DIR/../aha-loop/lib/paths.sh"
+
+# Initialize paths
+init_paths
+export_paths
 
 # Load configuration
 load_config() {
-  if [ -f "$CONFIG_FILE" ]; then
-    MIN_HOURS=$(jq -r '.awakening.randomInterval.minHours // 2' "$CONFIG_FILE")
-    MAX_HOURS=$(jq -r '.awakening.randomInterval.maxHours // 8' "$CONFIG_FILE")
-    readarray -t MEMBERS < <(jq -r '.council.members[]' "$CONFIG_FILE")
-    readarray -t RANDOM_TOPICS < <(jq -r '.awakening.randomTopics[]' "$CONFIG_FILE")
-    readarray -t SCHEDULED_CHECKS < <(jq -r '.awakening.scheduledChecks[]' "$CONFIG_FILE")
+  if [ -f "$GOD_DIR/config.json" ]; then
+    MIN_HOURS=$(jq -r '.awakening.randomInterval.minHours // 2' "$GOD_DIR/config.json")
+    MAX_HOURS=$(jq -r '.awakening.randomInterval.maxHours // 8' "$GOD_DIR/config.json")
+    readarray -t MEMBERS < <(jq -r '.council.members[]' "$GOD_DIR/config.json")
+    readarray -t RANDOM_TOPICS < <(jq -r '.awakening.randomTopics[]' "$GOD_DIR/config.json")
+    readarray -t SCHEDULED_CHECKS < <(jq -r '.awakening.scheduledChecks[]' "$GOD_DIR/config.json")
   else
     MIN_HOURS=2
     MAX_HOURS=8
@@ -50,15 +55,15 @@ load_config
 # State file for daemon
 STATE_FILE="$GOD_DIR/.awakener-state"
 PID_FILE="$GOD_DIR/.awakener.pid"
-LOG_FILE="$PROJECT_ROOT/logs/awakener.log"
+AWAKENER_LOG_FILE="$LOGS_DIR/awakener.log"
 
 # Ensure log directory exists
-mkdir -p "$(dirname "$LOG_FILE")"
+mkdir -p "$LOGS_DIR"
 
 # Logging
 log() {
   local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-  echo "[$timestamp] $1" | tee -a "$LOG_FILE"
+  echo "[$timestamp] $1" | tee -a "$AWAKENER_LOG_FILE"
 }
 
 # Get random topic
@@ -271,7 +276,7 @@ cmd_daemon() {
   fi
   
   echo "Starting awakener daemon (interval: ${interval}s)"
-  echo "Logs: $LOG_FILE"
+  echo "Logs: $AWAKENER_LOG_FILE"
   
   # Save PID
   echo $$ > "$PID_FILE"

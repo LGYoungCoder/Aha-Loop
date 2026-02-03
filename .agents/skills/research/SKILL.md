@@ -7,6 +7,15 @@ description: "Conducts deep technical research for Aha Loop stories. Use before 
 
 Conduct thorough technical research before implementation to ensure high-quality, informed decisions.
 
+## Workspace Mode Note
+
+When running in workspace mode, all paths are relative to `.aha-loop/` directory:
+- Research reports: `.aha-loop/research/` (not `scripts/aha-loop/research/`)
+- Knowledge base: `.aha-loop/knowledge/` (not `knowledge/`)
+- Vendor directory: `.aha-loop/.vendor/` (not `.vendor/`)
+
+The orchestrator will provide the actual paths in the prompt context.
+
 ---
 
 ## The Job

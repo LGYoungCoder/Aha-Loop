@@ -12,11 +12,18 @@
 
 set -e
 
+# Get script directory for sourcing lib
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-VENDOR_DIR="$PROJECT_ROOT/.vendor"
+
+# Source path resolution library
+source "$SCRIPT_DIR/lib/paths.sh"
+
+# Initialize paths
+init_paths
+export_paths
+
+# Use VENDOR_DIR from paths.sh
 MANIFEST_FILE="$VENDOR_DIR/manifest.json"
-CONFIG_FILE="$SCRIPT_DIR/config.json"
 
 # Default config values
 MAX_SIZE_MB=500
@@ -236,39 +243,39 @@ fetch_library() {
 # Fetch dependencies from project files
 fetch_from_deps() {
   echo "Scanning project dependencies..."
-  
+
   # Rust: Parse Cargo.toml
-  if [ -f "$PROJECT_ROOT/Cargo.toml" ]; then
+  if [ -f "$WORKSPACE_ROOT/Cargo.toml" ]; then
     echo "Found Cargo.toml, parsing Rust dependencies..."
     # Extract dependencies (simplified parsing)
-    local deps=$(grep -A 1000 '^\[dependencies\]' "$PROJECT_ROOT/Cargo.toml" 2>/dev/null | \
+    local deps=$(grep -A 1000 '^\[dependencies\]' "$WORKSPACE_ROOT/Cargo.toml" 2>/dev/null | \
                  grep -B 1000 '^\[' | head -n -1 | \
                  grep -E '^[a-zA-Z]' | \
                  sed 's/ *=.*//' | head -10)
-    
+
     for dep in $deps; do
       # Get version from Cargo.lock if available
       local version=""
-      if [ -f "$PROJECT_ROOT/Cargo.lock" ]; then
-        version=$(grep -A 2 "name = \"$dep\"" "$PROJECT_ROOT/Cargo.lock" 2>/dev/null | \
+      if [ -f "$WORKSPACE_ROOT/Cargo.lock" ]; then
+        version=$(grep -A 2 "name = \"$dep\"" "$WORKSPACE_ROOT/Cargo.lock" 2>/dev/null | \
                   grep 'version = ' | head -1 | \
                   sed 's/.*version = "\([^"]*\)".*/\1/')
       fi
-      
+
       if [ -n "$version" ]; then
         echo "  Found: $dep@$version"
         fetch_library "rust" "$dep" "$version" || true
       fi
     done
   fi
-  
+
   # NPM: Parse package.json
-  if [ -f "$PROJECT_ROOT/package.json" ]; then
+  if [ -f "$WORKSPACE_ROOT/package.json" ]; then
     echo "Found package.json, parsing NPM dependencies..."
-    local deps=$(jq -r '.dependencies // {} | keys[]' "$PROJECT_ROOT/package.json" 2>/dev/null)
-    
+    local deps=$(jq -r '.dependencies // {} | keys[]' "$WORKSPACE_ROOT/package.json" 2>/dev/null)
+
     for dep in $deps; do
-      local version=$(jq -r ".dependencies[\"$dep\"]" "$PROJECT_ROOT/package.json" | sed 's/[\^~]//')
+      local version=$(jq -r ".dependencies[\"$dep\"]" "$WORKSPACE_ROOT/package.json" | sed 's/[\^~]//')
       if [ -n "$version" ] && [ "$version" != "null" ]; then
         echo "  Found: $dep@$version"
         fetch_library "npm" "$dep" "$version" || true

@@ -16,6 +16,44 @@ This project uses Aha Loop, a fully autonomous AI development system with:
 
 ### Starting a New Project
 
+#### Workspace Mode (Recommended for External Projects)
+
+Aha Loop can operate on any project without copying files. All Aha Loop data is stored in `.aha-loop/` within your project:
+
+```bash
+# Initialize workspace in your project
+/path/to/aha-loop/scripts/aha-loop/orchestrator.sh --init-workspace /path/to/your-project
+
+# Run Aha Loop on your project
+/path/to/aha-loop/scripts/aha-loop/orchestrator.sh --workspace /path/to/your-project --build-vision
+
+# Or set environment variable
+export AHA_LOOP_WORKSPACE=/path/to/your-project
+/path/to/aha-loop/scripts/aha-loop/orchestrator.sh --build-vision
+
+# Or run from within your project (auto-detects .aha-loop/)
+cd /path/to/your-project
+/path/to/aha-loop/scripts/aha-loop/orchestrator.sh --build-vision
+```
+
+**Workspace Directory Structure:**
+```
+your-project/
+├── .aha-loop/           # All Aha Loop files here
+│   ├── config.json
+│   ├── prd.json
+│   ├── progress.txt
+│   ├── project.vision.md
+│   ├── project.roadmap.json
+│   ├── research/
+│   ├── exploration/
+│   ├── knowledge/
+│   ├── logs/
+│   └── .god/
+├── src/                 # Your code (untouched)
+└── ...
+```
+
 #### Interactive Vision Building (Recommended)
 
 ```bash

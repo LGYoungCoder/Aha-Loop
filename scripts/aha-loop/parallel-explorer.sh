@@ -8,26 +8,56 @@
 #   ./parallel-explorer.sh evaluate "explore-auth"
 #   ./parallel-explorer.sh cleanup [--all]
 #   ./parallel-explorer.sh list
+#   ./parallel-explorer.sh --workspace /path/to/project explore "task"
 
 set -e
 
+# Get script directory for sourcing lib
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/config.json"
-WORKTREE_BASE="$PROJECT_ROOT/.worktrees"
+
+# Source path resolution library
+source "$SCRIPT_DIR/lib/paths.sh"
 
 # Default settings
 TOOL="claude"
 MAX_CONCURRENT=10
 EVALUATION_AGENTS=3
+CLI_WORKSPACE=""
+
+# Pre-parse workspace argument before command
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --workspace)
+      CLI_WORKSPACE="$2"
+      shift 2
+      ;;
+    --workspace=*)
+      CLI_WORKSPACE="${1#*=}"
+      shift
+      ;;
+    *)
+      ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${ARGS[@]}"
+
+# Initialize paths (handles workspace detection)
+init_paths --workspace "$CLI_WORKSPACE"
+export_paths
 
 # Load config
 if [ -f "$CONFIG_FILE" ]; then
   WORKTREE_BASE=$(jq -r '.parallelExploration.worktreePath // ".worktrees"' "$CONFIG_FILE")
-  WORKTREE_BASE="$PROJECT_ROOT/$WORKTREE_BASE"
+  # Use WORKTREES_DIR from paths.sh instead of constructing it
   MAX_CONCURRENT=$(jq -r '.parallelExploration.maxConcurrent // 10' "$CONFIG_FILE")
   EVALUATION_AGENTS=$(jq -r '.parallelExploration.evaluationAgents // 3' "$CONFIG_FILE")
 fi
+
+# Use WORKTREES_DIR from paths.sh
+WORKTREE_BASE="$WORKTREES_DIR"
 
 # Ensure worktree directory exists
 mkdir -p "$WORKTREE_BASE"
@@ -152,8 +182,8 @@ When done, the EXPLORATION_RESULT.md should be complete."
   fi
   
   echo "Finished: $(date)" >> "$log_file"
-  
-  cd "$PROJECT_ROOT"
+
+  cd "$WORKSPACE_ROOT"
 }
 
 # Start parallel exploration
